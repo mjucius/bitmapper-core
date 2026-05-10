@@ -4,35 +4,42 @@ A lightweight, memory-efficient Java library for storing and manipulating boolea
 
 ## Overview
 
-Java's native `boolean[]` array is not memory-efficient. The underlying JVM implementation can use a byte or even an int array internally to store a single bit value, wasting significant memory. **BitMapper** provides a memory-efficient alternative by storing bits directly in a byte array (8 bits per byte), reducing memory usage by up to 8x compared to boolean arrays.
+Java's `boolean[]` uses one byte per element on every common JVM, and `Boolean[]` is even more wasteful. **BitMapper** stores 8 boolean values per byte, reducing memory use by up to 8× compared to `boolean[]` (and up to 32× compared to `Boolean[]`).
 
 ## Features
 
-- **Memory Efficient**: Stores 8 boolean values per byte instead of 1-4 bytes per boolean
-- **Simple API**: Clean, intuitive methods for getting and setting individual bits
-- **Flexible**: Create new bit arrays or wrap existing byte arrays
-- **Zero-copy**: When wrapping byte arrays, no data is copied
-- **Safe**: Bounds checking with clear exception messages
-- **Lightweight**: No external dependencies, minimal footprint
+- **Memory efficient**: 1 byte per 8 boolean values.
+- **Zero-copy wrapping**: construct over an existing `byte[]` and mutate it in place.
+- **Simple API**: get / set / clear / setAll, plus equality and serialization.
+- **Bounds-checked**: every read and write throws a clear `IndexOutOfBoundsException` for negative indices and indices beyond `getSize()`.
+- **No external dependencies**.
 
 ## Requirements
 
-- Java 8 or higher
-- Gradle 5.4+ (for building from source)
+- **Runtime**: Java 8 or higher.
+- **Build (from source)**: any JDK 17+ (required by Gradle 9.5). The published artifact targets Java 8 bytecode.
 
 ## Installation
 
-### Using Gradle
-
-Add the dependency to your `build.gradle`:
+Once published to Maven Central, add to your `build.gradle`:
 
 ```gradle
 dependencies {
-    implementation 'com.jucius.util:bitmapper-core:1.0.0'
+    implementation 'com.jucius:bitmapper-core:1.1.0'
 }
 ```
 
-### Building from Source
+Or in Maven:
+
+```xml
+<dependency>
+    <groupId>com.jucius</groupId>
+    <artifactId>bitmapper-core</artifactId>
+    <version>1.1.0</version>
+</dependency>
+```
+
+### Building from source
 
 ```bash
 git clone https://github.com/mjucius/bitmapper-core.git
@@ -42,109 +49,106 @@ cd bitmapper-core
 
 ## Usage
 
-### Creating a New BitMapper
+### Creating a new BitMapper
 
-Create a new BitMapper with a specified number of bits. All bits default to `false`:
+The size is rounded up to the next multiple of 8 bits.
 
 ```java
-// Create a new BitMapper with 1024 bits
 BitMapper bitMapper = new BitMapper(1024);
 
-// Set the 256th bit to true
 bitMapper.setBit(256, true);
+boolean v = bitMapper.getBit(512);
 
-// Get whether the 512th bit is set (i.e. true) or not
-boolean bitVal = bitMapper.getBit(512);
+int size = bitMapper.getSize();   // 1024
 
-// Get the size (number of bits)
-int size = bitMapper.getSize();  // Returns 1024
+bitMapper.setAll(true);            // every bit → true
+bitMapper.clear();                 // every bit → false
 
-// Clear all bits (set to false)
-bitMapper.clear();
-
-// Get the underlying byte array data
-byte[] data = bitMapper.getData();
+byte[] data = bitMapper.getData(); // backing byte array (live reference)
 ```
 
-### Wrapping an Existing Byte Array
+### Wrapping an existing byte array
 
-Overlay an existing byte array to manipulate it at the bit level:
+The array is **not copied**. Reads see existing bits; writes mutate the original.
 
 ```java
-// Create a BitMapper wrapping an existing byte array
-byte[] myData = new byte[4];
-BitMapper bitMapper = new BitMapper(myData);
+byte[] backing = new byte[4];
+BitMapper bitMapper = new BitMapper(backing);
 
-// Size is 32 (8 bits per byte * 4 bytes)
-int bitMapperSize = bitMapper.getSize();
-
-// Get the value of the 24th bit in the underlying myData
-boolean bitValue = bitMapper.getBit(24);
-
-// Set the 12th bit in the underlying data to true
+int size = bitMapper.getSize();    // 32 (8 bits × 4 bytes)
 bitMapper.setBit(12, true);
-
-// The BitMapper wraps the underlying data - any changes via the BitMapper
-// modify the underlying array. BitMapper.getData() returns the same object
-// passed into the constructor. Data is NOT copied.
-assert bitMapper.getData() == myData;
+assert bitMapper.getData() == backing;
+assert backing[1] == 0x10;          // bit 12 is the 0x10 bit of byte 1
 ```
 
-### Handling Out of Bounds Access
+### Bounds checking
 
 ```java
-byte[] myData = new byte[4];  // 32 bits
-BitMapper bitMapper = new BitMapper(myData);
+BitMapper bitMapper = new BitMapper(new byte[4]);  // 32 bits
 
-// Throws IndexOutOfBoundsException because 48th bit is out of range
-try {
-    bitMapper.getBit(48);
-} catch (IndexOutOfBoundsException e) {
-    // Handle error
-}
+bitMapper.getBit(-1);   // throws IndexOutOfBoundsException
+bitMapper.getBit(32);   // throws IndexOutOfBoundsException
+bitMapper.setBit(48, true);  // throws IndexOutOfBoundsException
 ```
 
-## API Reference
+## API reference
 
 ### Constructors
 
-- `BitMapper(int sizeHint)` - Creates a new BitMapper supporting at least the specified number of bits
-- `BitMapper(byte[] data)` - Creates a BitMapper wrapping an existing byte array (zero-copy)
+- `BitMapper(int sizeHint)` — new BitMapper with at least the specified number of bits, rounded up to the next multiple of 8. Throws `IllegalArgumentException` if `sizeHint` is negative.
+- `BitMapper(byte[] data)` — wraps the given array (zero-copy). Throws `IllegalArgumentException` if `data` is null.
 
 ### Methods
 
-- `boolean getBit(int bitIndex)` - Returns the value of the bit at the specified index
-- `void setBit(int bitIndex, boolean value)` - Sets the bit at the specified index to the given value
-- `void clear()` - Sets all bits to false
-- `int getSize()` - Returns the total number of bits supported
-- `byte[] getData()` - Returns the underlying byte array
+- `boolean getBit(int bitIndex)` — returns the bit at `bitIndex`.
+- `void setBit(int bitIndex, boolean value)` — assigns `value` to the bit at `bitIndex`.
+- `void clear()` — sets every bit to `false`.
+- `void setAll(boolean value)` — sets every bit to `value`.
+- `int getSize()` — total number of bits (always a multiple of 8).
+- `byte[] getData()` — returns the live backing array.
 
-## Performance Characteristics
+`BitMapper` also implements `Serializable` and overrides `equals`, `hashCode`, and `toString` (content-equality on the underlying byte array).
 
-- **Memory**: O(n/8) - Uses 1 byte per 8 boolean values
-- **Get/Set**: O(1) - Constant time bit access with bitwise operations
-- **Clear**: O(n/8) - Linear in the number of bytes
+## Bit ordering
 
-## Motivation
+Bits are packed **least-significant-bit first** within each byte. That is:
 
-This library was created for use in memory-constrained environments where storing large numbers of boolean flags efficiently is critical. Rather than dealing with manual bit shifting and masking operations, BitMapper encapsulates this complexity in a clean API.
+| Bit index | Byte | Mask within byte |
+|----------:|-----:|------------------|
+| 0         | 0    | `0x01`           |
+| 7         | 0    | `0x80`           |
+| 8         | 1    | `0x01`           |
+| 15        | 1    | `0x80`           |
 
-**Design Philosophy**: This implementation prioritizes memory minimization over computational efficiency. While bitwise operations add a small computational overhead compared to direct array access, the memory savings (up to 8x) make it ideal for:
+Tests pin this contract, so it is safe to rely on when persisting a BitMapper's bytes.
 
-- Bloom filters
-- Bit sets and flags
-- Memory-constrained embedded systems
-- Large-scale data processing with boolean markers
-- Network protocol implementations
+## Thread safety
+
+`BitMapper` is **not thread-safe**. External synchronization is required for concurrent access; mutating one instance from multiple threads without coordination produces undefined results.
+
+## Performance
+
+| Operation | Complexity |
+|-----------|------------|
+| `getBit`, `setBit` | O(1) |
+| `clear`, `setAll`  | O(n / 8) |
+| Memory             | n / 8 bytes |
+
+## Use cases
+
+- Bit sets and flag arrays
+- Memory-constrained environments
+- Network protocol payload manipulation
+- Persistent storage of compact boolean arrays
 
 ## License
 
-This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details.
+Apache License 2.0. See [LICENSE](LICENSE).
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit issues or pull requests.
+Issues and pull requests welcome.
 
 ## Author
 
-Created and maintained by [mjucius](https://github.com/mjucius)
+[Matthew Jucius](https://github.com/mjucius)

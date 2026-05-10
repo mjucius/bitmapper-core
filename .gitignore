@@ -1,6 +1,24 @@
-# Ignore Gradle project-specific cache directory
-.gradle
+# Gradle
+.gradle/
+build/
+bin/
 
-# Ignore Gradle build output directory
-build
-bin
+# IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.project
+.classpath
+.settings/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Personal release runbook (contains setup notes, not committed)
+PUBLISHING.md

@@ -1,0 +1,55 @@
+name: Publish to Maven Central
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type the version to confirm publishing (must match build.gradle)'
+        required: true
+
+# Prevent two simultaneous publishes from racing each other into Sonatype's
+# staging repo. cancel-in-progress is false so an in-flight publish completes.
+concurrency:
+  group: publish-maven-central
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Validate version input matches build.gradle
+        run: |
+          declared=$(grep -E "^version\s*=" build.gradle | head -1 | sed -E "s/.*['\"]([^'\"]+)['\"].*/\1/")
+          echo "build.gradle version: $declared"
+          echo "input version: ${{ inputs.confirm }}"
+          if [ "$declared" != "${{ inputs.confirm }}" ]; then
+            echo "::error::Version mismatch. Update build.gradle to ${{ inputs.confirm }} or re-run with the correct value."
+            exit 1
+          fi
+
+      - name: Build and test
+        run: ./gradlew clean build --no-daemon
+
+      # --no-configuration-cache: the vanniktech maven-publish plugin's publish
+      # tasks aren't compatible with Gradle's configuration cache (as of 0.36.0).
+      # Drop this flag once the plugin supports the config cache.
+      - name: Publish to Maven Central
+        run: ./gradlew publishAndReleaseToMavenCentral --no-daemon --no-configuration-cache
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_KEY_ID }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
